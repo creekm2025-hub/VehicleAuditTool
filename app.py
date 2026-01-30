@@ -2,62 +2,68 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-import pdfplumber  # <--- New library for reading PDFs
+import pdfplumber
 
-# --- 1. BRANDING & THEME CONFIGURATION ---
-company_name = "FLEETGUARD AUDIT SYSTEMS"
+# ==============================================================================
+# 1. CONFIGURATION & BRANDING
+# ==============================================================================
+
+company_name = "FLEETGUARD AUDIT SYSTEMS"  # CHANGE YOUR COMPANY NAME HERE
 st.set_page_config(
     page_title=f"{company_name} | Compliance Audit",
-    page_icon="🚛", 
+    page_icon="🚛",
     layout="wide"
 )
 
-# --- CUSTOM CSS ---
-brand_color = "#004481"
-bg_color = "#F5F7FA"
+# --- CUSTOM CSS THEME ---
+brand_color = "#004481"  # Your Brand Color (Blue)
+bg_color = "#F5F7FA"     # Background Color
 
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg_color}; }}
-    h1, h2, h3 {{ color: {brand_color} !important; font-family: 'Arial', sans-serif; }}
+    h1, h2, h3 {{ color: {brand_color} !important; font-family: 'Arial', sans-serif; font-weight: bold;}}
     [data-testid="stSidebar"] {{ background-color: {brand_color}; }}
     [data-testid="stSidebar"] > div:first-child {{ background-color: {brand_color}; }}
     [data-testid="stSidebar"] .css-17lntkn, [data-testid="stSidebar"] .css-1d391kg {{ color: white; }}
-    div[data-testid="stMetricValue"] {{ color: {brand_color}; }}
+    div[data-testid="stMetricValue"] {{ color: {brand_color}; font-size: 24px;}}
     </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER WITH LOGO ---
+# --- HEADER LOGO & TITLE ---
 col_logo, col_title = st.columns([1, 5])
 with col_logo:
     try:
-        st.image("logo.png", width=120)
+        st.image("logo.png", width=120) # Ensure logo.png is in the same folder
     except:
-        st.write("")
+        st.write("📂")
 
 with col_title:
     st.markdown(f"<h1 style='margin-top: 10px;'>{company_name}</h1>", unsafe_allow_html=True)
-    st.markdown(f"<h3 style='color: #666; margin-top: -20px;'>Vehicle Compliance Audit (PDF Support)</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='color: #666; margin-top: -20px;'>Vehicle Compliance Audit & Lubrication Scheduler</h3>", unsafe_allow_html=True)
 
 st.markdown("---")
 
-# --- SIDEBAR INPUTS ---
-with st.sidebar:
-    st.header("🚧 Control Panel")
-    st.subheader("1. Current Status")
-    current_km = st.number_input("Current Odometer (KM)", min_value=0, value=10000)
-    current_hrs = st.number_input("Current Engine Hours", min_value=0, value=500)
-    st.subheader("2. Vehicle Details")
-    vin_input = st.text_input("VIN", "TEST-VIN-123")
-    model_input = st.text_input("Model No (e.g., 3723R)", "3723R").upper()
-    sale_date = st.date_input("Date of Sale", datetime(2023, 1, 1))
 
-# --- NEW: FILE READING FUNCTION ---
+# ==============================================================================
+# 2. HELPER FUNCTIONS
+# ==============================================================================
+
+def find_column_name(df, keywords):
+    """Smart Search: Finds the column name in a DataFrame that contains one of the keywords."""
+    if df is None or df.empty:
+        return None
+    for col in df.columns:
+        col_lower = str(col).lower()
+        for kw in keywords:
+            if kw in col_lower:
+                return col
+    return None
+
 def read_input_file(uploaded_file):
-    """Reads Excel, CSV, or PDF and returns a DataFrame"""
+    """Reads PDF, Excel, or CSV and returns a clean DataFrame."""
     try:
         if uploaded_file.name.endswith('.pdf'):
-            # Logic to read PDF
             all_tables = []
             with pdfplumber.open(uploaded_file) as pdf:
                 for page in pdf.pages:
@@ -65,15 +71,30 @@ def read_input_file(uploaded_file):
                     if table:
                         all_tables.extend(table)
             
-            # Convert list of lists to DataFrame
-            if all_tables:
-                df = pd.DataFrame(all_tables[1:], columns=all_tables[0]) # Assume first row is header
-                # Clean up empty rows
-                df = df.dropna(how='all')
-                return df
-            else:
+            if not all_tables:
                 return pd.DataFrame()
+
+            # --- FIX DUPLICATE HEADERS ---
+            header = all_tables[0]
+            new_header = []
+            col_counts = {}
+            for i, col in enumerate(header):
+                col_name = str(col).strip() if col is not None else f"Col_{i}"
+                if not col_name: col_name = f"Col_{i}"
                 
+                # Handle Duplicates
+                if col_name in col_counts:
+                    col_counts[col_name] += 1
+                    col_name = f"{col_name}_{col_counts[col_name]}"
+                else:
+                    col_counts[col_name] = 0
+                new_header.append(col_name)
+            
+            df = pd.DataFrame(all_tables[1:], columns=new_header)
+            df = df.dropna(axis=1, how='all') # Drop empty columns
+            df = df.dropna(how='all')         # Drop empty rows
+            return df
+
         elif uploaded_file.name.endswith('.xlsx') or uploaded_file.name.endswith('.xls'):
             return pd.read_excel(uploaded_file)
         elif uploaded_file.name.endswith('.csv'):
@@ -84,24 +105,21 @@ def read_input_file(uploaded_file):
         st.error(f"Error reading file: {e}")
         return pd.DataFrame()
 
-# --- FILE UPLOADERS (Now accepts PDF) ---
-col1, col2 = st.columns(2)
-with col1:
-    sap_file = st.file_uploader("📂 Upload SAP History (PDF/Excel)", type=['pdf', 'xlsx', 'csv'])
-with col2:
-    chart_file = st.file_uploader("📂 Upload Lubrication Schedule (PDF/Excel)", type=['pdf', 'xlsx', 'csv'])
-
-# --- SPECIAL GREASING RULES LOGIC ---
 def get_special_greasing_requirements(model, item_name):
-    if not (model.endswith('R') or model.endswith('T')): return None, None
+    """Step 2: Special Greasing Rules for Models ending in R & T."""
+    if not (model.endswith('R') or model.endswith('T')):
+        return None, None
+
     item_name = str(item_name).upper().strip()
     
+    # Specific Exceptions
     if model in ['1617R', '1917R', '1917RD', '1917RT']:
         if 'FRONT HUB' in item_name: return 'A4009974046', 2
         elif 'REAR HUB' in item_name: return 'A4003571051', 2
         elif 'REAR AXLE II' in item_name or 'TAG AXLE' in item_name: return 'A4003570951', 2
         return None, None
 
+    # Standard R & T Rules
     if 'FRONT HUB' in item_name: return 'A4009974046', 2
     elif 'STEER HUB' in item_name:
         if model in ['3723R', '4228R', '4828R']: return 'A4009973946', 2
@@ -109,147 +127,184 @@ def get_special_greasing_requirements(model, item_name):
     elif 'PUSHER AXLE HUB' in item_name: return 'A4009973946', 2
     elif 'REAR AXLE HUB' in item_name: return 'A4009976546', 2
     elif 'REAR AXLE II' in item_name or 'TAG AXLE' in item_name: return 'A4009974146', 2
+    
     return None, None
 
-# --- MAIN PROCESSING ---
+
+# ==============================================================================
+# 3. SIDEBAR INPUTS
+# ==============================================================================
+with st.sidebar:
+    st.header("🚧 Control Panel")
+    st.subheader("1. Current Vehicle Status")
+    current_km = st.number_input("Current Odometer (KM)", min_value=0, value=10000)
+    current_hrs = st.number_input("Current Engine Hours", min_value=0, value=500)
+    
+    st.subheader("2. Vehicle Details")
+    vin_input = st.text_input("VIN", "TEST-VIN-123")
+    model_input = st.text_input("Model No (e.g., 3723R)", "3723R").upper()
+    sale_date = st.date_input("Date of Sale", datetime(2023, 1, 1))
+
+
+# ==============================================================================
+# 4. FILE UPLOADERS
+# ==============================================================================
+col1, col2 = st.columns(2)
+with col1:
+    sap_file = st.file_uploader("📂 Upload SAP History (PDF/Excel)", type=['pdf', 'xlsx', 'csv'])
+with col2:
+    chart_file = st.file_uploader("📂 Upload Lubrication Schedule (PDF/Excel)", type=['pdf', 'xlsx', 'csv'])
+
+
+# ==============================================================================
+# 5. MAIN LOGIC PROCESSING
+# ==============================================================================
 if sap_file and chart_file:
     try:
-        # Use the new reading function
+        # --- LOAD DATA ---
         df_sap = read_input_file(sap_file)
         df_chart = read_input_file(chart_file)
 
         if df_sap.empty or df_chart.empty:
-            st.error("Could not extract data from the PDFs. Please ensure the tables are clearly formatted.")
+            st.error("Could not extract data. Check file formats.")
         else:
-            # Display raw data for verification (optional, helps debugging PDFs)
-            with st.expander("View Extracted Data (Check if PDF read correctly)"):
-                st.write("**SAP Data Preview:**")
-                st.dataframe(df_sap.head())
-                st.write("**Schedule Data Preview:**")
-                st.dataframe(df_chart.head())
+            # --- DEBUG VIEW (Helpful for PDFs) ---
+            with st.expander("🔍 View Extracted Data (Check if columns are correct)"):
+                c1, c2 = st.columns(2)
+                c1.write("**SAP History Columns:**")
+                c1.write(list(df_sap.columns))
+                c1.dataframe(df_sap.head())
+                
+                c2.write("**Schedule Columns:**")
+                c2.write(list(df_chart.columns))
+                c2.dataframe(df_chart.head())
 
-            # Normalize Dates
-            # We look for common date column names in case PDF header differs slightly
-            date_col = None
-            for col in df_sap.columns:
-                if 'date' in str(col).lower():
-                    date_col = col
-                    break
+            # --- SMART COLUMN MAPPING ---
+            # 1. SAP Columns
+            sap_date_col = find_column_name(df_sap, ['date', 'time'])
+            sap_km_col = find_column_name(df_sap, ['km', 'kilo', 'odometer', 'reading'])
+            sap_item_col = find_column_name(df_sap, ['description', 'item', 'part', 'activity'])
             
-            if date_col:
-                df_sap[date_col] = pd.to_datetime(df_sap[date_col], errors='coerce')
-            
+            # 2. Schedule Columns
+            chart_item_col = find_column_name(df_chart, ['lubrication', 'name', 'item', 'description'])
+            chart_int_km_col = find_column_name(df_chart, ['interval km', 'km interval', 'frequency km'])
+            chart_int_mon_col = find_column_name(df_chart, ['interval months', 'month interval', 'months'])
+
+            # --- PREPARE SAP DATA ---
+            if sap_date_col:
+                df_sap[sap_date_col] = pd.to_datetime(df_sap[sap_date_col], errors='coerce')
+                df_sap = df_sap.dropna(subset=[sap_date_col]) # Remove rows with invalid dates
+            if sap_item_col:
+                df_sap[sap_item_col] = df_sap[sap_item_col].astype(str).str.upper()
+
+            # --- AUDIT LOOP ---
             results = []
             missing_records = []
 
-            # Try to find the item column
-            item_col = None
-            for col in df_chart.columns:
-                if 'lubrication' in str(col).lower() or 'name' in str(col).lower():
-                    item_col = col
-                    break
-            
-            if not item_col:
-                st.error("Could not find 'Lubrication Name' column in Schedule PDF. Please check column headers.")
-            else:
-                for _, row in df_chart.iterrows():
-                    item = row[item_col]
+            for _, row in df_chart.iterrows():
+                # Get Item Name
+                if not chart_item_col: continue
+                item = str(row[chart_item_col]).strip().upper()
+                if not item or item == 'NAN': continue
+
+                # Get Intervals
+                int_km = int(row[chart_int_km_col]) if chart_int_km_col and pd.notna(row[chart_int_km_col]) else 0
+                int_months = int(row[chart_int_mon_col]) if chart_int_mon_col and pd.notna(row[chart_int_mon_col]) else 0
+
+                # Special Rules Check
+                part_no, qty = get_special_greasing_requirements(model_input, item)
+
+                # Search History
+                last_done_date = "Not Recorded"
+                last_done_km = 0
+                status = "OK"
+
+                if sap_item_col and sap_date_col:
+                    # Find matches
+                    matches = df_sap[df_sap[sap_item_col].str.contains(item, case=False, na=False)]
                     
-                    # Get Intervals (Look for KM, Months columns)
-                    int_km = row.get('Interval KM', 0) if 'Interval KM' in row else 0
-                    int_hrs = row.get('Interval Hrs', 0) if 'Interval Hrs' in row else 0
-                    int_months = row.get('Interval Months', 0) if 'Interval Months' in row else 0
-
-                    # Special Rules
-                    part_no, qty = get_special_greasing_requirements(model_input, item)
-
-                    # Search SAP
-                    sap_item_col = None
-                    for col in df_sap.columns:
-                        if 'description' in str(col).lower() or 'item' in str(col).lower():
-                            sap_item_col = col
-                            break
-                    
-                    if sap_item_col:
-                        # Convert column to string to avoid errors during search
-                        df_sap[sap_item_col] = df_sap[sap_item_col].astype(str)
-                        item_history = df_sap[df_sap[sap_item_col].str.contains(str(item), case=False, na=False)]
-                    else:
-                        item_history = pd.DataFrame()
-
-                    last_done_date = None
-                    last_done_km = 0
-                    last_done_hrs = 0
-                    status = "OK"
-
-                    if not item_history.empty:
-                        last_record = item_history.sort_values(by=date_col, ascending=False).iloc[0]
-                        last_done_date = last_record[date_col]
+                    if not matches.empty:
+                        # Get most recent
+                        last_record = matches.sort_values(by=sap_date_col, ascending=False).iloc[0]
+                        last_done_date = last_record[sap_date_col]
                         
-                        # Try to find KM column
-                        km_col = None
-                        for col in df_sap.columns:
-                            if 'km' in str(col).lower():
-                                km_col = col
-                                break
-                        if km_col:
-                            last_done_km = last_record[km_col]
-                        
+                        if sap_km_col:
+                            try:
+                                last_done_km = float(last_record[sap_km_col])
+                            except:
+                                last_done_km = 0
+
+                        # Calculate Next Due
                         next_due_km = last_done_km + int_km
                         next_due_date = last_done_date + relativedelta(months=int_months)
                     else:
+                        # Missing Data Logic
                         missing_records.append(item)
-                        last_done_date = "Not Recorded"
                         next_due_km = int_km
                         next_due_date = sale_date + relativedelta(months=int_months)
-
-                    # Status Logic
-                    is_overdue_km = current_km > next_due_km
-                    is_overdue_date = datetime.now() > next_due_date
-                    due_soon_km = next_due_km * 0.90
-                    due_soon_date = next_due_date - relativedelta(months=1)
-                    is_due_soon_km = current_km >= due_soon_km
-                    is_due_soon_date = datetime.now() >= due_soon_date
-
-                    if is_overdue_km and is_overdue_date: status = "OVERDUE"
-                    elif is_due_soon_km or is_due_soon_date: status = "DUE SOON"
-
-                    results.append({
-                        "Lubrication Name": item,
-                        "Part No (Special)": part_no if part_no else "-",
-                        "Last Done Date": last_done_date,
-                        "Last Done KM": last_done_km,
-                        "Interval KM": int_km,
-                        "Next Due KM": next_due_km,
-                        "Next Due Date": next_due_date,
-                        "Current Status": status
-                    })
-
-                df_results = pd.DataFrame(results)
-
-                # --- OUTPUT SECTION ---
-                st.subheader("📊 1. Compliance Audit Table")
-                def color_status(val):
-                    if 'OVERDUE' in val: return 'background-color: #ffcccc; color: black'
-                    if 'DUE SOON' in val: return 'background-color: #fff3cd; color: black'
-                    return 'background-color: #d4edda; color: black'
-                
-                st.dataframe(df_results.style.applymap(color_status, subset=['Current Status']))
-
-                st.subheader("⚠️ 2. SAP Data Errors & Observations")
-                if missing_records:
-                    st.error(f"Missing Records: {', '.join(missing_records)}")
                 else:
-                    st.success("All items found in history.")
+                     missing_records.append(item)
+                     next_due_km = int_km
+                     next_due_date = sale_date + relativedelta(months=int_months)
 
-                st.subheader("📝 3. Summary")
-                c1, c2, c3 = st.columns(3)
-                pending_count = len(df_results[df_results['Current Status'] != 'OK'])
-                with c1: st.metric("Pending Actions", pending_count)
-                with c2: st.metric("Next Major Service (KM)", int(df_results['Next Due KM'].max()))
-                with c3: st.metric("Overall Compliance", "COMPLIANT" if pending_count == 0 else "NON-COMPLIANT")
+                # --- STATUS CALCULATION ---
+                is_overdue_km = current_km > next_due_km
+                is_overdue_date = datetime.now() > next_due_date
+                
+                due_soon_km = next_due_km * 0.90
+                due_soon_date = next_due_date - relativedelta(months=1)
+                
+                is_due_soon_km = current_km >= due_soon_km
+                is_due_soon_date = datetime.now() >= due_soon_date
+
+                if is_overdue_km and is_overdue_date:
+                    status = "OVERDUE"
+                elif is_due_soon_km or is_due_soon_date:
+                    status = "DUE SOON"
+                else:
+                    status = "OK"
+
+                results.append({
+                    "Lubrication Name": item,
+                    "Part No (Special)": part_no if part_no else "-",
+                    "Last Done Date": last_done_date,
+                    "Last Done KM": int(last_done_km),
+                    "Interval KM": int_km,
+                    "Next Due KM": int(next_due_km),
+                    "Next Due Date": next_due_date,
+                    "Current Status": status
+                })
+
+            df_results = pd.DataFrame(results)
+
+            # --- DISPLAY RESULTS ---
+            st.subheader("📊 Compliance Audit Table")
+            
+            def color_status(val):
+                if 'OVERDUE' in str(val): return 'background-color: #ffcccc; color: black; font-weight: bold'
+                if 'DUE SOON' in str(val): return 'background-color: #fff3cd; color: black; font-weight: bold'
+                return 'background-color: #d4edda; color: black'
+
+            st.dataframe(df_results.style.applymap(color_status, subset=['Current Status']))
+
+            # --- SUMMARY ---
+            st.subheader("📝 Summary & Errors")
+            
+            c1, c2, c3 = st.columns(3)
+            pending = len(df_results[df_results['Current Status'] != 'OK'])
+            
+            with c1: st.metric("Pending Actions", pending)
+            with c2: st.metric("Next Major Service", int(df_results['Next Due KM'].max()))
+            with c3: st.metric("Compliance", "COMPLIANT" if pending == 0 else "NON-COMPLIANT")
+
+            if missing_records:
+                st.warning(f"⚠️ Items with no history in SAP: {', '.join(missing_records)}")
+            else:
+                st.success("✅ All items found in history.")
 
     except Exception as e:
-        st.error(f"An error occurred: {e}")
+        st.error(f"Critical Error: {e}")
+        st.write("Please check the 'View Extracted Data' section above to see how the PDF was read.")
+
 else:
-    st.info("👈 Please upload both documents (PDF or Excel) to begin.")
+    st.info("👈 Please upload both documents to begin the audit.")

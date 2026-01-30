@@ -9,9 +9,9 @@ import re
 # 1. CONFIGURATION & BRANDING
 # ==============================================================================
 
-company_name = "FLEETGUARD AUDIT SYSTEMS"
+company_name = "AUTOBAHN TRUCKING CORPORATION"
 st.set_page_config(
-    page_title=f"{company_name} | Compliance Audit",
+    page_title=f"{company_name} | Time bound sheet",
     page_icon="🚛",
     layout="wide"
 )

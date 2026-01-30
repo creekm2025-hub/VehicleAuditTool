@@ -53,23 +53,24 @@ st.markdown("---")
 # ==============================================================================
 
 def clean_text(text):
-    """Removes spaces, newlines, and special chars to match columns easily."""
+    """Removes spaces, newlines, and special chars."""
     if not isinstance(text, str): return ""
     return re.sub(r'[\n\r\s]+', '', text).lower()
 
 def find_column_name(df, keywords):
-    """Finds the column in the DataFrame that matches any of the keywords."""
+    """Searches columns for any match in the keywords list."""
     if df is None or df.empty:
         return None
     for col in df.columns:
         clean_col = clean_text(col)
         for kw in keywords:
+            # Check if keyword exists in the column name
             if kw in clean_col:
                 return col
     return None
 
 def read_input_file(uploaded_file):
-    """Reads PDF, Excel, or CSV. Handles duplicate headers automatically."""
+    """Reads PDF, Excel, or CSV."""
     try:
         if uploaded_file.name.endswith('.pdf'):
             all_tables = []
@@ -79,10 +80,8 @@ def read_input_file(uploaded_file):
                     if table:
                         all_tables.extend(table)
             
-            if not all_tables:
-                return pd.DataFrame()
+            if not all_tables: return pd.DataFrame()
 
-            # --- FIX DUPLICATE HEADERS ---
             header = all_tables[0]
             new_header = []
             col_counts = {}
@@ -90,8 +89,6 @@ def read_input_file(uploaded_file):
             for i, col in enumerate(header):
                 col_name = str(col).strip() if col is not None else f"Col_{i}"
                 if not col_name: col_name = f"Col_{i}"
-                
-                # Handle Duplicates by appending _1, _2
                 if col_name in col_counts:
                     col_counts[col_name] += 1
                     col_name = f"{col_name}_{col_counts[col_name]}"
@@ -100,8 +97,8 @@ def read_input_file(uploaded_file):
                 new_header.append(col_name)
             
             df = pd.DataFrame(all_tables[1:], columns=new_header)
-            df = df.dropna(axis=1, how='all') # Drop completely empty columns
-            df = df.dropna(how='all')         # Drop completely empty rows
+            df = df.dropna(axis=1, how='all')
+            df = df.dropna(how='all')
             return df
 
         elif uploaded_file.name.endswith('.xlsx') or uploaded_file.name.endswith('.xls'):
@@ -115,7 +112,6 @@ def read_input_file(uploaded_file):
         return pd.DataFrame()
 
 def get_special_greasing_requirements(model, item_name):
-    """Step 2: Special Greasing Rules."""
     if not (model.endswith('R') or model.endswith('T')): return None, None
     item_name = str(item_name).upper().strip()
     
@@ -158,54 +154,54 @@ with col2: chart_file = st.file_uploader("📂 Lubrication Schedule (PDF/Excel)"
 if sap_file and chart_file:
     
     try:
-        # --- STEP 1: READ DATA ---
         df_sap = read_input_file(sap_file)
         df_chart = read_input_file(chart_file)
 
         if df_sap.empty or df_chart.empty:
             st.error("⚠️ One of the files appears to be empty or could not be read.")
         else:
-            # --- STEP 2: AUTO-DETECT COLUMNS ---
-            # SAP Columns
-            sap_date_col = find_column_name(df_sap, ['date', 'time'])
-            sap_km_col = find_column_name(df_sap, ['km', 'kilo', 'odometer', 'reading'])
-            sap_item_col = find_column_name(df_sap, ['description', 'item', 'part', 'activity', 'work'])
-
-            # Chart Columns
-            chart_item_col = find_column_name(df_chart, ['lubrication', 'name', 'item', 'description', 'point'])
-            chart_int_km_col = find_column_name(df_chart, ['intervalkm', 'interval km', 'frequency', 'km'])
-            chart_int_mon_col = find_column_name(df_chart, ['intervalmonths', 'interval months', 'month', 'months'])
-
-            # --- STEP 3: SYSTEM HEALTH CHECK (Visual Feedback) ---
-            st.subheader("🔍 System Health Check")
-            c1, c2, c3 = st.columns(3)
+            # --- EXPANDED KEYWORD LISTS ---
+            # Added many synonyms like 'odometer', 'mileage', 'task', 'completion'
             
-            # SAP Health
-            with c1:
-                st.markdown("**SAP History Columns Found:**")
-                st.markdown(f"- Date: <span class='{'health-pass' if sap_date_col else 'health-fail'}'>{sap_date_col if sap_date_col else 'NOT FOUND'}</span>", unsafe_allow_html=True)
-                st.markdown(f"- KM: <span class='{'health-pass' if sap_km_col else 'health-fail'}'>{sap_km_col if sap_km_col else 'NOT FOUND'}</span>", unsafe_allow_html=True)
-                st.markdown(f"- Item: <span class='{'health-pass' if sap_item_col else 'health-fail'}'>{sap_item_col if sap_item_col else 'NOT FOUND'}</span>", unsafe_allow_html=True)
+            # SAP Keywords
+            sap_date_keywords = ['date', 'time', 'day', 'completion', 'service', 'done']
+            sap_km_keywords = ['km', 'kilo', 'odometer', 'reading', 'mileage', 'distance']
+            sap_item_keywords = ['description', 'item', 'part', 'activity', 'work', 'task', 'text', 'service']
 
-            # Schedule Health
-            with c2:
-                st.markdown("**Schedule Columns Found:**")
-                st.markdown(f"- Item Name: <span class='{'health-pass' if chart_item_col else 'health-fail'}'>{chart_item_col if chart_item_col else 'NOT FOUND'}</span>", unsafe_allow_html=True)
-                st.markdown(f"- Int. KM: <span class='{'health-pass' if chart_int_km_col else 'health-fail'}'>{chart_int_km_col if chart_int_km_col else 'NOT FOUND'}</span>", unsafe_allow_html=True)
-                st.markdown(f"- Int. Month: <span class='{'health-pass' if chart_int_mon_col else 'health-fail'}'>{chart_int_mon_col if chart_int_mon_col else 'NOT FOUND'}</span>", unsafe_allow_html=True)
+            # Schedule Keywords
+            chart_item_keywords = ['lubrication', 'name', 'item', 'description', 'point', 'task', 'service', 'check']
+            chart_int_km_keywords = ['intervalkm', 'interval km', 'frequency', 'km', 'kilo']
+            chart_int_mon_keywords = ['intervalmonths', 'interval months', 'month', 'months']
 
-            # Raw Data Preview (For debugging)
-            with c3:
-                with st.expander("View Raw PDF Data"):
-                    st.write("Schedule Cols:", list(df_chart.columns))
-                    st.dataframe(df_chart.head(2))
+            # --- DETECTION ---
+            sap_date_col = find_column_name(df_sap, sap_date_keywords)
+            sap_km_col = find_column_name(df_sap, sap_km_keywords)
+            sap_item_col = find_column_name(df_sap, sap_item_keywords)
+
+            chart_item_col = find_column_name(df_chart, chart_item_keywords)
+            chart_int_km_col = find_column_name(df_chart, chart_int_km_keywords)
+            chart_int_mon_col = find_column_name(df_chart, chart_int_mon_keywords)
+
+            # --- SYSTEM HEALTH CHECK ---
+            st.subheader("🔍 System Health Check")
+            
+            # Auto-display found columns
+            st.info(f"**SAP Columns Found:** Date=`{sap_date_col}`, KM=`{sap_km_col}`, Item=`{sap_item_col}`")
+            st.info(f"**Schedule Columns Found:** Item=`{chart_item_col}`, Int.KM=`{chart_int_km_col}`, Int.Month=`{chart_int_mon_col}`")
+
+            with st.expander("👁️ View Raw Column Names (For Debugging)"):
+                st.write("SAP Columns:", list(df_sap.columns))
+                st.write("Schedule Columns:", list(df_chart.columns))
+                st.dataframe(df_chart.head())
 
             # --- CRITICAL STOP ---
             if not all([sap_item_col, chart_item_col]):
-                st.error("🛑 STOP: Critical columns are missing. Please check the 'System Health Check' above. The column names in your PDF might not match the expected keywords.")
+                st.error("🛑 STOP: Critical columns (Item Name) are still missing.")
+                st.write("I looked for words like: 'Item', 'Task', 'Description', 'Service', 'Check', 'Lubrication'.")
+                st.write("Click 'View Raw Column Names' above to see exactly what your PDF calls them.")
                 st.stop()
 
-            # --- STEP 4: PREPARE DATA ---
+            # --- PREPARE DATA ---
             if sap_date_col:
                 df_sap[sap_date_col] = pd.to_datetime(df_sap[sap_date_col], errors='coerce')
                 df_sap = df_sap.dropna(subset=[sap_date_col])
@@ -213,23 +209,19 @@ if sap_file and chart_file:
             if sap_item_col:
                 df_sap[sap_item_col] = df_sap[sap_item_col].astype(str).str.upper()
 
-            # --- STEP 5: AUDIT LOOP ---
+            # --- AUDIT LOOP ---
             results = []
             missing_records = []
 
             for _, row in df_chart.iterrows():
-                # Get Item Name
                 item = str(row[chart_item_col]).strip().upper()
                 if not item or item == 'NAN': continue
 
-                # Get Intervals
                 int_km = int(row[chart_int_km_col]) if chart_int_km_col and pd.notna(row[chart_int_km_col]) else 0
                 int_months = int(row[chart_int_mon_col]) if chart_int_mon_col and pd.notna(row[chart_int_mon_col]) else 0
 
-                # Special Rules
                 part_no, qty = get_special_greasing_requirements(model_input, item)
 
-                # Search History
                 last_done_date = "Not Recorded"
                 last_done_km = 0
                 status = "OK"
@@ -255,7 +247,6 @@ if sap_file and chart_file:
                     next_due_km = int_km
                     next_due_date = sale_date + relativedelta(months=int_months)
 
-                # --- STATUS LOGIC ---
                 is_overdue_km = current_km > next_due_km
                 is_overdue_date = datetime.now() > next_due_date
                 due_soon_km = next_due_km * 0.90
@@ -279,7 +270,7 @@ if sap_file and chart_file:
 
             df_results = pd.DataFrame(results)
 
-            # --- STEP 6: FINAL OUTPUT ---
+            # --- FINAL OUTPUT ---
             if not df_results.empty:
                 st.subheader("📊 Compliance Audit Table")
                 def color_status(val):
@@ -303,7 +294,7 @@ if sap_file and chart_file:
 
     except Exception as e:
         st.error(f"Unexpected Error: {e}")
-        st.write("If this error persists, please check the 'System Health Check' section above.")
+        st.write("Please click 'View Raw Column Names' above to see what the app is reading.")
 
 else:
     st.info("👈 Please upload both documents to begin.")

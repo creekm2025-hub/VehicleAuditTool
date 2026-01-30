@@ -11,7 +11,7 @@ import re
 
 company_name = "AUTOBAHN TRUCKING CORPORATION"
 st.set_page_config(
-    page_title=f"{company_name} | Time bound sheet",
+    page_title=f"{company_name} | Compliance Audit",
     page_icon="🚛",
     layout="wide"
 )
@@ -55,7 +55,7 @@ st.markdown("---")
 def clean_text(text):
     """Removes spaces, newlines, and special chars."""
     if not isinstance(text, str): return ""
-    return re.sub(r'[\n\r\s]+', '', text).lower()
+    return re.sub(r'[\n\r\s\*]+', '', text).lower()
 
 def find_column_name(df, keywords):
     """Searches columns for any match in the keywords list."""
@@ -64,13 +64,12 @@ def find_column_name(df, keywords):
     for col in df.columns:
         clean_col = clean_text(col)
         for kw in keywords:
-            # Check if keyword exists in the column name
             if kw in clean_col:
                 return col
     return None
 
 def read_input_file(uploaded_file):
-    """Reads PDF, Excel, or CSV."""
+    """Reads PDF, Excel, or CSV with Smart Header Correction."""
     try:
         if uploaded_file.name.endswith('.pdf'):
             all_tables = []
@@ -97,6 +96,20 @@ def read_input_file(uploaded_file):
                 new_header.append(col_name)
             
             df = pd.DataFrame(all_tables[1:], columns=new_header)
+            
+            # --- SMART HEADER FIX FOR SAP ---
+            # If we have generic headers like Col_0, Col_1... check the first row
+            if all(c.startswith('Col_') for c in df.columns):
+                # Look at the first row of data
+                first_row = df.iloc[0]
+                # If the first row contains keywords like 'date', 'km', 'item', use it as header
+                first_row_str = ' '.join([str(x).lower() for x in first_row])
+                if any(kw in first_row_str for kw in ['date', 'km', 'item', 'desc', 'service']):
+                    st.info("🔧 Auto-detecting SAP headers from the first row of data...")
+                    new_real_header = df.iloc[0].astype(str).tolist()
+                    df = df[1:] # Drop the old header row
+                    df.columns = new_real_header
+            
             df = df.dropna(axis=1, how='all')
             df = df.dropna(how='all')
             return df
@@ -160,16 +173,15 @@ if sap_file and chart_file:
         if df_sap.empty or df_chart.empty:
             st.error("⚠️ One of the files appears to be empty or could not be read.")
         else:
-            # --- EXPANDED KEYWORD LISTS ---
-            # Added many synonyms like 'odometer', 'mileage', 'task', 'completion'
+            # --- KEYWORD LISTS (Updated) ---
             
             # SAP Keywords
             sap_date_keywords = ['date', 'time', 'day', 'completion', 'service', 'done']
             sap_km_keywords = ['km', 'kilo', 'odometer', 'reading', 'mileage', 'distance']
-            sap_item_keywords = ['description', 'item', 'part', 'activity', 'work', 'task', 'text', 'service']
+            sap_item_keywords = ['description', 'item', 'part', 'activity', 'work', 'task', 'text', 'service', 'text']
 
-            # Schedule Keywords
-            chart_item_keywords = ['lubrication', 'name', 'item', 'description', 'point', 'task', 'service', 'check']
+            # Schedule Keywords (Added 'aggregates' and 'specification')
+            chart_item_keywords = ['aggregates', 'specification', 'lubrication', 'name', 'item', 'description', 'point', 'task', 'service', 'check']
             chart_int_km_keywords = ['intervalkm', 'interval km', 'frequency', 'km', 'kilo']
             chart_int_mon_keywords = ['intervalmonths', 'interval months', 'month', 'months']
 
@@ -189,16 +201,23 @@ if sap_file and chart_file:
             st.info(f"**SAP Columns Found:** Date=`{sap_date_col}`, KM=`{sap_km_col}`, Item=`{sap_item_col}`")
             st.info(f"**Schedule Columns Found:** Item=`{chart_item_col}`, Int.KM=`{chart_int_km_col}`, Int.Month=`{chart_int_mon_col}`")
 
+            # Debug View
             with st.expander("👁️ View Raw Column Names (For Debugging)"):
-                st.write("SAP Columns:", list(df_sap.columns))
-                st.write("Schedule Columns:", list(df_chart.columns))
-                st.dataframe(df_chart.head())
+                c1, c2 = st.columns(2)
+                c1.write("**SAP Columns:**")
+                c1.write(list(df_sap.columns))
+                if not df_sap.empty:
+                     c1.dataframe(df_sap.head(2))
+
+                c2.write("**Schedule Columns:**")
+                c2.write(list(df_chart.columns))
+                c2.dataframe(df_chart.head(2))
 
             # --- CRITICAL STOP ---
             if not all([sap_item_col, chart_item_col]):
                 st.error("🛑 STOP: Critical columns (Item Name) are still missing.")
-                st.write("I looked for words like: 'Item', 'Task', 'Description', 'Service', 'Check', 'Lubrication'.")
-                st.write("Click 'View Raw Column Names' above to see exactly what your PDF calls them.")
+                st.write("I looked for words like: 'Aggregates', 'Specification', 'Item', 'Task'.")
+                st.write("If SAP headers are still 'Col_0', please check the PDF format.")
                 st.stop()
 
             # --- PREPARE DATA ---
